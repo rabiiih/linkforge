@@ -1,0 +1,21 @@
+# Loaded automatically by `docker compose up` — development settings only.
+# Production runs with: docker compose -f compose.yaml up -d
+services:
+  api:
+    build:
+      target: deps            # skip the lean runtime stage; we mount source instead
+    command: sh -c "npm install && npx nodemon src/server.js"
+    volumes:
+      - .:/app                # live code from the host
+      - node_modules:/app/node_modules
+    environment:
+      NODE_ENV: development
+    ports:
+      - "3000:3000"           # direct API access, bypassing nginx, for debugging
+
+  db:
+    ports:
+      - "5432:5432"           # connect DBeaver/psql from the host during dev
+
+volumes:
+  node_modules:
