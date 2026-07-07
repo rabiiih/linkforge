@@ -1,0 +1,96 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  # -------------------------------------------------------------------------
+  # 1. Unit tests — fast feedback, no containers needed
+  # -------------------------------------------------------------------------
+  unit-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run unit tests
+        run: npm test
+
+  # -------------------------------------------------------------------------
+  # 2. Build the production image (fails fast on Dockerfile errors)
+  # -------------------------------------------------------------------------
+  docker-build:
+    runs-on: ubuntu-latest
+    needs: unit-tests
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build image
+        run: docker build -t linkforge:ci .
+
+  # -------------------------------------------------------------------------
+  # 3. Integration smoke test — boot the FULL stack with Compose and hit it
+  # -------------------------------------------------------------------------
+  integration:
+    runs-on: ubuntu-latest
+    needs: docker-build
+    env:
+      DB_USER: ci_user
+      DB_PASSWORD: ci_password
+      DB_NAME: linkforge_ci
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Start the stack (production config, no dev override)
+        run: docker compose -f compose.yaml up -d --build
+
+      - name: Wait for health endpoint
+        run: |
+          for i in $(seq 1 30); do
+            if curl -fsS http://localhost:8080/health; then
+              echo "healthy after ${i} attempts"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "stack never became healthy"
+          docker compose logs
+          exit 1
+
+      - name: Smoke test — shorten, redirect, stats
+        run: |
+          set -e
+          # Create a short link
+          RESPONSE=$(curl -fsS -X POST http://localhost:8080/api/shorten \
+            -H 'Content-Type: application/json' \
+            -d '{"url":"https://github.com"}')
+          echo "shorten response: $RESPONSE"
+          CODE=$(echo "$RESPONSE" | python3 -c "import sys,json; print(json.load(sys.stdin)['code'])")
+
+          # Follow the redirect — must be a 302 to github.com
+          LOCATION=$(curl -s -o /dev/null -w '%{redirect_url}' "http://localhost:8080/$CODE")
+          echo "redirects to: $LOCATION"
+          test "$LOCATION" = "https://github.com/" || test "$LOCATION" = "https://github.com"
+
+          # Stats must show at least 1 click
+          sleep 1
+          curl -fsS "http://localhost:8080/api/stats/$CODE" | grep -q '"clicks":1'
+          echo "integration test passed ✔"
+
+      - name: Dump logs on failure
+        if: failure()
+        run: docker compose logs
+
+      - name: Tear down
+        if: always()
+        run: docker compose down -v
