@@ -2,7 +2,7 @@
 
 A production-style **URL shortener microservice** built to demonstrate real-world Docker, Docker Compose, and CI/CD practices.
 
-![CI](https://github.com/YOUR_USERNAME/linkforge/actions/workflows/ci.yml/badge.svg)
+![CI](https://github.com/rabiiih/linkforge/actions/workflows/ci.yml/badge.svg)
 
 **Stack:** Node.js (Express) · PostgreSQL 16 · Redis 7 · Nginx · Docker Compose · GitHub Actions
 
